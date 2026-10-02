@@ -1,0 +1,185 @@
+const games = new Map();
+
+function getBoard(board) {
+	return board.map((x, i) => x || (i + 1)).join(" | ");
+}
+
+function checkWinner(board) {
+	const wins = [
+		[0, 1, 2],
+		[3, 4, 5],
+		[6, 7, 8],
+		[0, 3, 6],
+		[1, 4, 7],
+		[2, 5, 8],
+		[0, 4, 8],
+		[2, 4, 6]
+	];
+
+	for (const [a, b, c] of wins) {
+		if (board[a] && board[a] === board[b] && board[a] === board[c])
+			return board[a];
+	}
+
+	if (board.every(x => x))
+		return "draw";
+
+	return null;
+}
+
+module.exports = {
+	config: {
+		name: "ttt",
+		version: "1.0",
+		author: "Hinata",
+		cooldowns: 3,
+		role: 0,
+		description: {
+			en: "Play Tic-Tac-Toe with another member"
+		},
+		category: "game",
+		guide: {
+			en:
+				"{pn} @mention - challenge someone\n" +
+				"{pn} <1-9> - make your move\n" +
+				"{pn} cancel - cancel your game"
+		}
+	},
+
+	langs: {
+		en: {
+			mention: "❌ Please mention someone to start a game.",
+			self: "❌ You cannot play against yourself.",
+			busy: "⚠️ One of the players is already in a game.",
+			start:
+				"🎮 Tic-Tac-Toe started!\n\n" +
+				"❌ %1\n" +
+				"⭕ %2\n\n" +
+				"%3\n\n" +
+				"❌ starts first.\n" +
+				"Reply with a number from 1-9.",
+			invalid: "❌ Invalid move. Choose an empty number from 1-9.",
+			notTurn: "⏳ It's not your turn.",
+			win: "🏆 %1 wins!\n\n%2",
+			draw: "🤝 It's a draw!\n\n%1",
+			cancel: "🛑 Game cancelled.",
+			noGame: "❌ You don't have an active Tic-Tac-Toe game."
+		}
+	},
+
+	onStart: async function ({ message, event, args, api, getLang }) {
+		const senderID = event.senderID;
+
+		// CANCEL
+		if (args[0] && args[0].toLowerCase() === "cancel") {
+			const game = games.get(senderID);
+
+			if (!game)
+				return message.reply(getLang("noGame"));
+
+			games.delete(game.player1);
+			games.delete(game.player2);
+
+			return message.reply(getLang("cancel"));
+		}
+
+		// MAKE MOVE
+		if (args[0] && /^[1-9]$/.test(args[0])) {
+			const game = games.get(senderID);
+
+			if (!game)
+				return message.reply(getLang("noGame"));
+
+			if (game.turn !== senderID)
+				return message.reply(getLang("notTurn"));
+
+			const position = Number(args[0]) - 1;
+
+			if (game.board[position])
+				return message.reply(getLang("invalid"));
+
+			game.board[position] = senderID === game.player1 ? "❌" : "⭕";
+
+			const result = checkWinner(game.board);
+
+			if (result === "draw") {
+				const board = getBoard(game.board);
+
+				games.delete(game.player1);
+				games.delete(game.player2);
+
+				return message.reply(getLang("draw", board));
+			}
+
+			if (result) {
+				const winner =
+					result === "❌" ? game.name1 : game.name2;
+
+				const board = getBoard(game.board);
+
+				games.delete(game.player1);
+				games.delete(game.player2);
+
+				return message.reply(getLang("win", winner, board));
+			}
+
+			game.turn =
+				game.turn === game.player1
+					? game.player2
+					: game.player1;
+
+			const nextPlayer =
+				game.turn === game.player1
+					? game.name1
+					: game.name2;
+
+			return message.reply(
+				"🎮 Tic-Tac-Toe\n\n" +
+				"❌ " + game.name1 + "\n" +
+				"⭕ " + game.name2 + "\n\n" +
+				getBoard(game.board) +
+				"\n\n👉 " + nextPlayer + ", your turn!\n" +
+				"Reply with a number from 1-9."
+			);
+		}
+
+		// START GAME
+		if (!event.mentions || Object.keys(event.mentions).length === 0)
+			return message.reply(getLang("mention"));
+
+		const opponentID = Object.keys(event.mentions)[0];
+
+		if (opponentID === senderID)
+			return message.reply(getLang("self"));
+
+		if (games.has(senderID) || games.has(opponentID))
+			return message.reply(getLang("busy"));
+
+		const senderInfo = await api.getUserInfo(senderID);
+		const opponentInfo = await api.getUserInfo(opponentID);
+
+		const name1 = senderInfo[senderID]?.name || "Player 1";
+		const name2 = opponentInfo[opponentID]?.name || "Player 2";
+
+		const game = {
+			player1: senderID,
+			player2: opponentID,
+			name1,
+			name2,
+			board: Array(9).fill(null),
+			turn: senderID
+		};
+
+		games.set(senderID, game);
+		games.set(opponentID, game);
+
+		return message.reply(
+			getLang(
+				"start",
+				name1,
+				name2,
+				getBoard(game.board)
+			)
+		);
+	}
+};
